@@ -1,4 +1,8 @@
-CheezTest Class - create new Batcache-compatible server-side A/B tests
+== CheezTest ==
+
+Create new Batcache-compatible server-side A/B tests
+
+A joint LOL by the fine folks I Can Has Cheezburger (http://www.cheezburger.com) and Automattic (http://automattic.com)
 
 Main class from which all A/B tests are inherited. Enables fast setup
 of A/B tests - upon initialization, the basic order of execution is:
