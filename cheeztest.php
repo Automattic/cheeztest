@@ -169,7 +169,8 @@ class CheezTest {
 	 */
 	private function assign_group( $groups ){
 
-		$checks = array();
+		$segment_checks = array();
+		$cookie_checks = array();
 		$block_size = 100 / count( $groups );
 		$block_end = $block_size;
 		$block_start = 0;
@@ -188,11 +189,17 @@ class CheezTest {
 				$block_end = 100;
 			}
 
-			//setup batcache test
-			$checks[] = sprintf(
+			//setup batcache vary on cache conditions
+			$segment_checks[] = sprintf(
 				'( $seg_num >= %1$d && $seg_num < %2$d ) return "%3$s";',
 				$block_start,
 				$block_end,
+				$group
+			);
+
+			$cookie_checks[] = sprintf(
+				'( $_COOKIE["%1$s"] === "%2$s" ) return "%2$s";',
+				$this->name,
 				$group
 			);
 
@@ -201,7 +208,11 @@ class CheezTest {
 			$block_end = $block_start + $block_size;
 		}
 
-		$test = sprintf( 'if( isset( $_COOKIE["%1$s"] ) ) return $_COOKIE["%1$s"]; $seg_num = rand(1,100); if %2$s', $this->name, implode( 'elseif', $checks ) );
+		// Take array of checks and turn into string of if/then return statements
+		$segment_checks_str = 'if' . implode( 'elseif', $segment_checks );
+		$cookie_checks_str = 'if' . implode( 'elseif', $cookie_checks );
+
+		$test = sprintf( 'if( isset( $_COOKIE["%1$s"] ) ){ %2$s } else { $seg_num = rand( 1,100 ); %3$s }', $this->name, $cookie_checks_str, $segment_checks_str );
 		return static::run_vary_cache_func( $test );
 	}
 
