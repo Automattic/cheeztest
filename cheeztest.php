@@ -10,9 +10,9 @@
  *
  * Main class from which all A/B tests are inherited. Enables fast setup
  * of A/B tests - upon initialization, the basic order of execution is:
- * set test name > check if user is qualified to participate > check
- * if user has been assigned a segment, and assign if not > assign user
- * to group > execute 'action' callback if present.
+ * set test name > check if user is qualified to participate > 
+ * get segment from either server or cookie > execute 'action' callback if present 
+ * > write segment cookie if neccessary
  *
  * User's qualification, segment, and group tests are done in batcache
  * so as to ensure correct cache variants are served.
@@ -21,9 +21,8 @@
  * segments are assigned at once - so if a user is qualified to participate
  * in more than one test, all segments are assigned at the same time. When
  * segments need to be set, a small javascript is injected into the <head>
- * via a call to CheezTest::run_user_segmentation(). This javascript
- * establishes the segment, sets a cookie to retain the segment, and reloads
- * the page.
+ * via a call to CheezTest::write_segment_cookie(). This javascript sets a
+ * cookie to retain the assigned segment.
  *
  * Test case data (name, is_qualified, & group) are stored in the $active_tests
  * static hash and made accessible via the 'is_qualified_for', 'get_group_for', and
@@ -35,7 +34,7 @@
  *
  * - or -
  *
- * if ( CheezTest::is_in_group( 'my-example-group' ) ) {
+ * if ( CheezTest::is_in_group( 'my-example-test', 'my-example-group' ) ) {
  *    //group-specific stuff goes here
  * }
  *
@@ -50,6 +49,7 @@ class CheezTest {
 	public $name = '';
 	public $group = null;
 	public $is_qualified = true;
+	private $expires = 0;
 	/**
 	* @access		public
 	* @staticvar	array [ $active_tests ] key / val map with name, is_qualified,
@@ -58,13 +58,6 @@ class CheezTest {
 	*/
 	public static $active_tests = array();
 
-	/**
-	* @access		private
-	* @staticvar	array [ $tests_to_segment ] key / val map with name and expires
-	*				properties for any test case which the user has not yet received
-	*				a segment for. Used to set client-side segment cookies.
-	*/
-	private static $tests_to_segment = array();
 	private static $is_excluded = false;
 
 	/**
@@ -107,19 +100,6 @@ class CheezTest {
 			return;
 		}
 
-		//check for segment, and que up segment assignment if needed
-		if ( ! $this->has_segment() ) {
-			$expires = $cfg[ 'expires' ] ? ( gmdate( 'r', time() + $cfg[ 'expires' ] ) ) : 0;
-			array_push(
-				static::$tests_to_segment,
-				array (
-					'name' => $this->name,
-					'expires' => $expires
-				)
-			);
-			return;
-		}
-
 		//establish user's group
 		$this->group = $this->assign_group( $cfg[ "groups" ] );
 
@@ -132,6 +112,12 @@ class CheezTest {
 		//fire 'action' callback if present
 		if ( $this->group && is_callable( $cfg[ "action" ] ) ) {
 			$cfg[ "action" ]( $this->group );
+		}
+
+		//if segment needs to be recorded in cookie, enqueue JS to do so
+		if ( ! $this->has_segment_cookie() ) {
+			$this->expires = $cfg[ 'expires' ] ? ( gmdate( 'r', time() + $cfg[ 'expires' ] ) ) : 0;		
+			add_action( 'wp_print_footer_scripts' , array( $this, 'write_segment_cookie' ), 1 );
 		}
 	}
 
@@ -153,12 +139,12 @@ class CheezTest {
 	}
 
 	/**
-	 * has_segment - batcahe-friendly test to determine if user has a segment
+	 * has_segment_cookie - batcahe-friendly test to determine if user has a segment cookie
 	 *
 	 * @access	private
 	 * @return  bool whether or not segment cookie exists
 	 */
-	private function has_segment(){
+	private function has_segment_cookie(){
 		$test = sprintf( 'return (bool) isset( $_COOKIE["%s"] );', $this->name );
 		return static::run_vary_cache_func( $test );
 	}
@@ -170,6 +156,10 @@ class CheezTest {
 	 * creates a batcache-friendly test to ensure proper variant
 	 * is shown.
 	 *
+	 * If the user has a segment cookie, the segment in the cookie
+	 * is returned. If not, the server returns a random group based
+	 * on the thresholds provided in the test config.
+	 *
 	 * @access	private
 	 * @param	array [ $groups ] key / value map which contains the
 	 *			group names to use. Unless 'threshold' property is supplied
@@ -178,11 +168,13 @@ class CheezTest {
 	 * @return  string group assigned (as derived from $groups argument array)
 	 */
 	private function assign_group( $groups ){
-		$checks = array();
+
+		$segment_checks = array();
+		$cookie_checks = array();
 		$block_size = 100 / count( $groups );
 		$block_end = $block_size;
 		$block_start = 0;
-
+		
 		//loop through groups and build up test logic to determine group assignment
 		foreach ( $groups as $group => $group_args ){
 
@@ -197,12 +189,17 @@ class CheezTest {
 				$block_end = 100;
 			}
 
-			//setup batcache test
-			$checks[] = sprintf(
-				'( $_COOKIE["%1$s"] >= %2$d && $_COOKIE["%1$s"] < %3$d ) return "%4$s";',
-				$this->name,
+			//setup batcache vary on cache conditions
+			$segment_checks[] = sprintf(
+				'( $seg_num >= %1$d && $seg_num < %2$d ) return "%3$s";',
 				$block_start,
 				$block_end,
+				$group
+			);
+
+			$cookie_checks[] = sprintf(
+				'( $_COOKIE["%1$s"] === "%2$s" ) return "%2$s";',
+				$this->name,
 				$group
 			);
 
@@ -211,7 +208,11 @@ class CheezTest {
 			$block_end = $block_start + $block_size;
 		}
 
-		$test = sprintf( 'if %s', implode( 'elseif', $checks ) );
+		// Take array of checks and turn into string of if/then return statements
+		$segment_checks_str = 'if' . implode( 'elseif', $segment_checks );
+		$cookie_checks_str = 'if' . implode( 'elseif', $cookie_checks );
+
+		$test = sprintf( 'if( isset( $_COOKIE["%1$s"] ) ){ %2$s } else { $seg_num = rand( 1,100 ); %3$s }', $this->name, $cookie_checks_str, $segment_checks_str );
 		return static::run_vary_cache_func( $test );
 	}
 
@@ -230,6 +231,13 @@ class CheezTest {
 	 * @return  mixed (bool | string | int)
 	 */
 	private static function run_vary_cache_func( $test ){
+
+		if ( preg_match('/include|require|echo|print|dump|export|open|sock|unlink|`|eval/i', $test) )
+			trigger_error('Illegal word in cache variant function determiner.', E_USER_ERROR );
+	
+		if ( !preg_match('/\$_/', $test) )
+			trigger_error('Cache variant function should refer to at least one $_ variable.', E_USER_ERROR );
+
 		if ( function_exists( 'vary_cache_on_function' ) ) {
 			vary_cache_on_function( $test );
 		}
@@ -277,43 +285,31 @@ class CheezTest {
 	}
 
 	/**
-	 * run_user_segmentation - serves javascript response to client to establish segment
+	 * write_segment_cookie - serves javascript response to client to write the user's
+	 * segment into a cookie so it will persist across visits
 	 *
-	 * If one or more tests require segmentation, this will return a block of javascript
-	 * which will establish a segment, assign a cookie for that test w/ the assigned segment
-	 * and reload the page. Cookies are domain-wide.
-	 *
-	 * @access	public
 	 * @return
 	 */
-	static function run_user_segmentation(){
-		if ( empty( static::$tests_to_segment ) ){
-			?><!-- no segments required --><?php
-			return;
-		}
-
-		$tests = json_encode( static::$tests_to_segment );
-
+	function write_segment_cookie(){
 		?>
 			<script>
-				// Assign AB Testing cookies
 				( function(){
-					var tests = <?php echo $tests; ?>,
-						segment;
-					if( navigator.cookieEnabled ) {
-						for ( var i = 0; i < tests.length; i = i + 1 ){
-							segment = Math.floor( Math.random() * 100 );
 
-							document.cookie =  tests[ i ].name + '=' + segment + '; expires=' + tests[ i ].expires + '; path=/';
-						}
+					// Check if cookies are enabled
+					// @see http://sveinbjorn.org/cookiecheck
+					var cookieEnabled = (navigator.cookieEnabled) ? true : false;
 
-						window.location.reload();
-					} else {
-						
-						console.log( "You appear to have disabled cookies somehow. Some things may not work correctly in your browser. What did cookies ever do to you? Love, CheezTech." )
-						
+					if (typeof navigator.cookieEnabled == "undefined" && !cookieEnabled){ 
+						document.cookie="testcookie";
+						cookieEnabled = (document.cookie.indexOf("testcookie") != -1) ? true : false;
 					}
-
+					
+					if( ! cookieEnabled )
+						return;
+					
+					// Set cookie with test condition
+					document.cookie = <?php echo json_encode( $this->name ); ?> + '=' + <?php echo json_encode( $this->group ); ?> + '; expires=' + <?php echo json_encode( $this->expires ); ?> + '; path=/';
+					
 				})();
 			</script>
 		<?php
@@ -366,7 +362,3 @@ class CheezTest {
 		return static::get_group_for( $name ) == $group;
 	}
 }
-
-// Need to do this to be able to output the segmentation code
-add_action( 'wp_head', array( 'CheezTest', 'run_user_segmentation' ) );
-
