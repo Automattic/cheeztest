@@ -21,13 +21,12 @@ to group > execute 'action' callback if present.
 User's qualification, segment, and group tests are done in batcache
 so as to ensure correct cache variants are served.
 
-User's segment is assigned via client-side javascript. Mutliple test
+User's segment is assigned server-side via magic. Mutliple test
 segments are assigned at once - so if a user is qualified to participate
 in more than one test, all segments are assigned at the same time. When
 segments need to be set, a small javascript is injected into the <head>
-via a call to CheezTest::run_user_segmentation(). This javascript
-establishes the segment, sets a cookie to retain the segment, and reloads
-the page.
+via a call to CheezTest::write_segment_cookie(). This javascript
+sets a cookie to retain the segment assigned earlier.
 
 Test case data (name, is_qualified, & group) are stored in the $active_tests
 static hash and made accessible via the 'is_qualified_for', 'get_group_for', and
