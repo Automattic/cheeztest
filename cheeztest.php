@@ -212,7 +212,7 @@ class CheezTest {
 		$segment_checks_str = 'if' . implode( 'elseif', $segment_checks );
 		$cookie_checks_str = 'if' . implode( 'elseif', $cookie_checks );
 
-		$test = sprintf( 'if( isset( $_COOKIE["%1$s"] ) ){ %2$s } else { $seg_num = rand( 1,100 ); %3$s }', $this->name, $cookie_checks_str, $segment_checks_str );
+		$test = sprintf( 'if( isset( $_COOKIE["%1$s"] ) ){ %2$s } else { $seg_num = rand( 0,99 ); %3$s }', $this->name, $cookie_checks_str, $segment_checks_str );
 		return static::run_vary_cache_func( $test );
 	}
 
