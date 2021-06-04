@@ -38,6 +38,6 @@ if ( CheezTest::is_qualified_for( 'my-example-test' ) {
 
 - or -
 
-if ( CheezTest::is_in_group( 'my-example-group' ) ) {
+if ( CheezTest::is_in_group( 'my-example-test', 'my-example-group' ) ) {
    //group-specific stuff goes here
 }
