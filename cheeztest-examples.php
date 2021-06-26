@@ -1,29 +1,36 @@
 <?php
-// Here is an example test that you can use to get started.
+/**
+ * An example test that you can use to get started.
+ *
+ * This test creates a test and a control group.
+ * The test group will get 30% of qualified users.
+ * The control group will get the remaining 70%.
+ *
+ * @package CheezTest
+ */
 
-// This test creates a test and a control group.
-// The test group will get 30% of qualified users.
-// The control group will get the remaining 70%.
-
+// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound
 $chrome_test = new CheezTest(
 	array(
-		'name' =>  'chrome-ab',
-		'groups' => array(
-			'active' => array(
+		'name'         => 'chrome-ab',
+		'groups'       => array(
+			'active'  => array(
 				'threshold' => 30,
 			),
 			'control' => array(
 				'threshold' => 70,
-			)
+			),
 		),
-		'is_qualified' =>  'return stripos( $_SERVER[ "HTTP_USER_AGENT" ], "Chrome" ) !== false;'
+		'is_qualified' => 'return stripos( $_SERVER[ "HTTP_USER_AGENT" ], "Chrome" ) !== false;',
 	)
 );
 
-// This will display a fixed position bar at the bottom of the screen to users in the test condition (i.e. 30% of Chrome users)
+// This will display a fixed position bar at the bottom of the screen to users in the test condition (i.e. 30% of Chrome users).
 if ( CheezTest::is_in_group( 'chrome-ab', 'active' ) ) {
-	add_action( 'wp_footer', function() {
-		?>
+	add_action(
+		'wp_footer',
+		function() {
+			?>
 		<div id="ab-chrome-bar">
 			<span>Howdy, Chrome user!</span>
 		</div>
@@ -44,6 +51,7 @@ if ( CheezTest::is_in_group( 'chrome-ab', 'active' ) ) {
 			line-height: 28px;
 		}
 		</style>
-		<?php
-	} );
+			<?php
+		}
+	);
 }
