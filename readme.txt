@@ -8,7 +8,7 @@ $$ \__/  |$$ |  $$ | /$$$$/__   $$ | $$$$$$  |  $$ |/  |
 $$    $$/ $$ |  $$ |/$$      |  $$ |/     $$/   $$  $$/ 
  $$$$$$/  $$/   $$/ $$$$$$$$/   $$/ $$$$$$$/     $$$$/  
 
-Create new Batcache-compatible server-side A/B tests
+CheezTest lets you create and run Batcache-compatible server-side A/B tests in your theme.
 
 A joint LOL by the fine folks I Can Has Cheezburger (http://www.cheezburger.com) and Automattic (http://automattic.com)
 
@@ -41,3 +41,7 @@ if ( CheezTest::is_qualified_for( 'my-example-test' ) {
 if ( CheezTest::is_in_group( 'my-example-test', 'my-example-group' ) ) {
    //group-specific stuff goes here
 }
+
+The plugin makes use of Batcache’s support for vary_cache_on_function, which saves page variants in a page’s cache and then evaluates which one to serve when the page loads.
+
+IMPORTANT: Since the tests run before Batcache, which in turn runs very early (before theme code is included), only built-in PHP functions and jetpack_is_mobile() can be used when defining tests. Any theme-specific functions will not be available.
